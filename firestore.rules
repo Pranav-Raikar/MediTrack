@@ -1,0 +1,52 @@
+// firestore.rules  —  Firestore Security Rules
+//
+// RULES:
+//  - Users can only read/write their OWN data
+//  - Doctors can read patient data IF the patient has linked them
+//  - No one can delete another user's account data
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── User data (medicines, vitals, diagnoses) ──────────────────────────
+    match /users/{userId}/{document=**} {
+      // Only the user themselves can read/write their data
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ── Patient data shared with doctors ─────────────────────────────────
+    // A doctor can read a patient's data only if the patient linked them
+    match /users/{patientId}/medicines/{doc} {
+      allow read: if request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(patientId)/linkedDoctors/$(request.auth.uid));
+    }
+
+    match /users/{patientId}/vitals/{doc} {
+      allow read: if request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(patientId)/linkedDoctors/$(request.auth.uid));
+    }
+
+    match /users/{patientId}/diagnoses/{doc} {
+      // Patient can read their own diagnoses
+      // Linked doctors can read AND write (to add new diagnoses)
+      allow read: if request.auth != null && request.auth.uid == patientId;
+      allow read, write: if request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(patientId)/linkedDoctors/$(request.auth.uid));
+    }
+
+    // ── Doctor portal data ────────────────────────────────────────────────
+    match /doctors/{doctorId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == doctorId;
+    }
+
+    // ── Clinics ───────────────────────────────────────────────────────────
+    match /clinics/{clinicId}/{document=**} {
+      // Only clinic admin can write; all doctors in the clinic can read
+      allow read: if request.auth != null &&
+        exists(/databases/$(database)/documents/clinics/$(clinicId)/doctors/$(request.auth.uid));
+      allow write: if request.auth != null &&
+        get(/databases/$(database)/documents/clinics/$(clinicId)).data.adminUid == request.auth.uid;
+    }
+  }
+}
